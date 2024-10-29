@@ -264,7 +264,7 @@ def json_to_xmi(spec, model_name, ea_root_class_name):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python convert_json_to_xmi.py <input_file> <output_file>")
+        print("Usage: python convert_oas_to_xmi.py <input_file> <output_file>")
         sys.exit(1)
 
     input_file = sys.argv[1]
