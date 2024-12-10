@@ -36,9 +36,9 @@ def add_tagged_values_to_element(element, tagged_values):
         if tag != 'author':  # Skip the author tag
             tagged_value_container.append(create_tagged_value('TaggedValue', {'tag': tag, 'value': ('' if value is None else str(value))}))
 
-def create_class_element(class_name, parent_element, element_id_counter, package_id, description):
+def create_class_element(class_name, parent_element, element_id_counter, package_id, description, model_name):
     """Helper function to create a class element."""
-    class_id = f'EAID_{next(element_id_counter):08X}'
+    class_id = f'EAID_{str(uuid.uuid4()).replace("-", "_").upper()}'
     class_element = create_xmi_element('Class', {
         'name': class_name,
         'xmi.id': class_id,
@@ -60,7 +60,7 @@ def create_class_element(class_name, parent_element, element_id_counter, package
         'date_modified': datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S'),
         'gentype': 'Java',
         'tagged': '0',
-        'package_name': 'OpenAPIModel',
+        'package_name': model_name,
         'phase': '1.0',
         'complexity': '1',
         'status': 'Proposed',
@@ -75,7 +75,7 @@ def create_class_element(class_name, parent_element, element_id_counter, package
     parent_element.append(class_element)
     return class_element
 
-def parse_schema(schema, parent_element, element_id_counter, class_id_map, class_element, package_namespace_owned_element, containing_class=None):
+def parse_schema(schema, parent_element, element_id_counter, class_id_map, class_element, package_namespace_owned_element, model_name, containing_class=None):
     """Recursively parse a JSON schema and add to the XML tree."""
     classifier_feature = ET.SubElement(class_element, f'{UML}Classifier.feature')
 
@@ -106,15 +106,15 @@ def parse_schema(schema, parent_element, element_id_counter, class_id_map, class
             type_value = 'object'
 
         if 'oneOf' in property_schema:
-            ref_classes = handle_schema_composition(property_schema['oneOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'))
+            ref_classes = handle_schema_composition(property_schema['oneOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'), model_name)
             format_value = 'oneOf ' + ', '.join(ref_classes)
             type_value = 'object'
         elif 'allOf' in property_schema:
-            ref_classes = handle_schema_composition(property_schema['allOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'))
+            ref_classes = handle_schema_composition(property_schema['allOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'), model_name)
             format_value = 'allOf ' + ', '.join(ref_classes)
             type_value = 'object'
         elif 'anyOf' in property_schema:
-            ref_classes = handle_schema_composition(property_schema['anyOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'))
+            ref_classes = handle_schema_composition(property_schema['anyOf'], containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, parent_element.get('namespace'), model_name)
             format_value = 'anyOf ' + ', '.join(ref_classes)
             type_value = 'object'
 
@@ -147,7 +147,7 @@ def parse_schema(schema, parent_element, element_id_counter, class_id_map, class
         add_tagged_values_to_element(attribute_element, attribute_tagged_values)
         classifier_feature.append(attribute_element)
 
-def handle_schema_composition(composition_list, containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, top_level_package_id):
+def handle_schema_composition(composition_list, containing_class, parent_element, element_id_counter, class_id_map, package_namespace_owned_element, top_level_package_id, model_name):
     """Handle schema composition (oneOf, allOf, anyOf) and generate inner classes if necessary."""
     ref_classes = []
     for ref in composition_list:
@@ -156,9 +156,9 @@ def handle_schema_composition(composition_list, containing_class, parent_element
         elif 'title' in ref:
             inline_class_name = f"{containing_class}.{ref['title']}" if containing_class else ref['title']
             ref_classes.append(inline_class_name)
-            inline_class_element = create_class_element(inline_class_name, package_namespace_owned_element, element_id_counter, top_level_package_id, ref.get('description', ''))
+            inline_class_element = create_class_element(inline_class_name, package_namespace_owned_element, element_id_counter, top_level_package_id, ref.get('description', ''), model_name)
             class_id_map[inline_class_name] = {'id': inline_class_element.get('xmi.id'), 'element': inline_class_element}
-            parse_schema(ref, parent_element, element_id_counter, class_id_map, inline_class_element, package_namespace_owned_element, containing_class=inline_class_name)
+            parse_schema(ref, parent_element, element_id_counter, class_id_map, inline_class_element, package_namespace_owned_element, model_name, containing_class=inline_class_name)
     return ref_classes
 
 def json_to_xmi(spec, model_name, ea_root_class_name):
@@ -229,9 +229,9 @@ def json_to_xmi(spec, model_name, ea_root_class_name):
     components = spec.get('components', {})
     schemas = components.get('schemas', {})
     for schema_name, schema in schemas.items():
-        class_element = create_class_element(schema_name, package_namespace_owned_element, element_id_counter, openapi_model_package.get('xmi.id'), schema.get('description', ''))
+        class_element = create_class_element(schema_name, package_namespace_owned_element, element_id_counter, openapi_model_package.get('xmi.id'), schema.get('description', ''), model_name)
         class_id_map[schema_name] = {'id': class_element.get('xmi.id'), 'element': class_element}
-        parse_schema(schema, class_element, element_id_counter, class_id_map, class_element, package_namespace_owned_element, containing_class=schema_name)
+        parse_schema(schema, class_element, element_id_counter, class_id_map, class_element, package_namespace_owned_element, model_name, containing_class=schema_name)
 
     # Handle dependencies for schema composition
     for schema_name, schema in schemas.items():
@@ -241,13 +241,13 @@ def json_to_xmi(spec, model_name, ea_root_class_name):
                 ref_classes = []
                 composition_type = ''
                 if 'oneOf' in schema:
-                    ref_classes = handle_schema_composition(schema['oneOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'))
+                    ref_classes = handle_schema_composition(schema['oneOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'), model_name)
                     composition_type = 'oneOf'
                 elif 'allOf' in schema:
-                    ref_classes = handle_schema_composition(schema['allOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'))
+                    ref_classes = handle_schema_composition(schema['allOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'), model_name)
                     composition_type = 'allOf'
                 elif 'anyOf' in schema:
-                    ref_classes = handle_schema_composition(schema['anyOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'))
+                    ref_classes = handle_schema_composition(schema['anyOf'], schema_name, package_namespace_owned_element, element_id_counter, class_id_map, package_namespace_owned_element, openapi_model_package.get('xmi.id'), model_name)
                     composition_type = 'anyOf'
                 
                 alias_value = f'{composition_type} ' + ', '.join(ref_classes)
@@ -264,7 +264,7 @@ def json_to_xmi(spec, model_name, ea_root_class_name):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python convert_oas_to_xmi.py <input_file> <output_file>")
+        print("Usage: python convert_json_to_xmi.py <input_file> <output_file>")
         sys.exit(1)
 
     input_file = sys.argv[1]
